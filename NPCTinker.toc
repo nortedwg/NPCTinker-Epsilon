@@ -1,0 +1,8 @@
+## Interface: 90005
+## Title: NPCTinker
+## Author: Norte (Discord: norte.m2) (X.com/norte_m2)
+## Notes: ¡Editar NPCs ahora es sencillo!|n|n|cffffd200Version:|r 1.0.3
+## Version: 1.0.3
+# Files
+NPCTinker.lua
+NPCTinker-Tablas.lua
