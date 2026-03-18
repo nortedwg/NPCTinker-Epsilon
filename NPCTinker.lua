@@ -890,74 +890,66 @@ end
 -- ===============================
 
 
--- Función para limpiar códigos de color
-local function limpiarColores(texto)
-    texto = texto:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
-    return texto
-end
-
--- Frame único para detectar NPC y leer mensajes del sistema
-local FrameNPC = CreateFrame("Frame")
-FrameNPC:RegisterEvent("PLAYER_TARGET_CHANGED")
-FrameNPC:RegisterEvent("CHAT_MSG_SYSTEM")
-
--- Flag para saber que acabamos de pedir info del NPC
-local esperandoNPCInfo = false
-
--- Variable global para almacenar los 5 primeros números
+-- Variable global para almacenar el DisplayID del NPC seleccionado
 DisplayIDNPC = nil
 
--- Control del silencio de mensajes de sistema
-local silencioActivo = false
-local function FiltroMensajesSistema(self, event, msg, ...)
-    if silencioActivo then
-        return true -- Oculta el mensaje del chat
+-- ===============================
+-- REGISTRO DE EpsilonLib AddonCommands
+-- ===============================
+
+local sendAddonCmd
+if EpsilonLib and EpsilonLib.AddonCommands then
+    sendAddonCmd = EpsilonLib.AddonCommands.Register("NPCTinker")
+else
+    -- Fallback por si EpsilonLib aún no está cargado en el momento de evaluación
+    function sendAddonCmd(command, callbackFn, forceShowMessages)
+        if EpsilonLib and EpsilonLib.AddonCommands then
+            sendAddonCmd = EpsilonLib.AddonCommands.Register("NPCTinker")
+            sendAddonCmd(command, callbackFn, forceShowMessages)
+            return
+        end
+        print("[NPCTinker] EpsilonLib no disponible, no se puede obtener info del NPC.")
     end
 end
-ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", FiltroMensajesSistema)
 
-local function ActivarSilencio(duracion)
-    silencioActivo = true
-    C_Timer.After(duracion, function()
-        silencioActivo = false
-    end)
+-- Tabla compartida donde cada sección de UI registra su función de refresco.
+-- ProcesarNPCInfo la invoca tras actualizar NPCRazaGenero.
+local NPCTinker_UIActualizadores = {}
+
+-- Callback que recibe la respuesta de "npc info" y extrae el DisplayID
+local function ProcesarNPCInfo(isCommandSuccessful, repliesList)
+    if not isCommandSuccessful or not repliesList or not repliesList[1] then return end
+
+    local mensaje = repliesList[1]
+    -- Limpia códigos de color de WoW (igual que PhaseToolkit)
+    mensaje = mensaje:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+
+    local despuesDisplayID = string.match(mensaje, "DisplayID:%s*(.+)")
+    if despuesDisplayID then
+        local numeros = string.match(despuesDisplayID, "%d+")
+        if numeros then
+            DisplayIDNPC = string.sub(numeros, 1, 5)
+            ActualizarRazaGenero()
+            -- Ahora que NPCRazaGenero está actualizado, refrescamos toda la UI.
+            -- Dos pasadas: la 1ª actualiza Show/Hide de cada opción según la nueva raza.
+            -- La 2ª reposiciona con los estados Show/Hide ya correctos (las posiciones
+            -- dependen de si el frame vecino está visible, así que necesitan la 1ª pasada completa).
+            for _, fn in ipairs(NPCTinker_UIActualizadores) do fn() end
+            for _, fn in ipairs(NPCTinker_UIActualizadores) do fn() end
+        end
+    end
 end
 
--- Función para enviar comando .npc info con silencio de 1s
-local function EnviarNpcInfo()
-    ActivarSilencio(1)
-    SendChatMessage(".npc info", "GUILD")
-end
+-- Frame para detectar cambio de target
+local FrameNPC = CreateFrame("Frame")
+FrameNPC:RegisterEvent("PLAYER_TARGET_CHANGED")
 
--- Función que procesa los mensajes de system para extraer DisplayID
-FrameNPC:SetScript("OnEvent", function(_, event, mensaje)
-    if not DetectarInfoNPC then return end -- Solo funciona si está activado
+FrameNPC:SetScript("OnEvent", function(_, event)
+    if not DetectarInfoNPC then return end
 
     if event == "PLAYER_TARGET_CHANGED" then
         if UnitExists("target") and not UnitIsPlayer("target") then
-            local npcName = UnitName("target") or "desconocido"
-            -- print("NPC seleccionado:", npcName)
-
-            C_Timer.After(0.1, function()
-                EnviarNpcInfo()
-                esperandoNPCInfo = true
-            end)
-        end
-
-    elseif event == "CHAT_MSG_SYSTEM" and esperandoNPCInfo then
-        if mensaje then
-            local limpio = limpiarColores(mensaje)
-            local despuesDisplayID = string.match(limpio, "DisplayID:%s*(.+)")
-            if despuesDisplayID then
-                local numeros = string.match(despuesDisplayID, "%d+")
-                if numeros then
-                    DisplayIDNPC = string.sub(numeros, 1, 5)
-                    -- print("DisplayIDNPC (5 primeros dígitos):", DisplayIDNPC)
-
-                    ActualizarRazaGenero()
-                    esperandoNPCInfo = false
-                end
-            end
+            sendAddonCmd("npc info", ProcesarNPCInfo, false)
         end
     end
 end)
@@ -1431,8 +1423,15 @@ NPCTinkerCrearSubVentanaOpcion({
 
 local FrameCara = CreateFrame("Frame")
 FrameCara:RegisterEvent("ADDON_LOADED")
-FrameCara:RegisterEvent("PLAYER_TARGET_CHANGED")
 FrameCara:RegisterEvent("CHAT_MSG_SYSTEM")
+
+-- Registramos el refresco de UI en la tabla compartida.
+-- ProcesarNPCInfo lo llamará una vez que NPCRazaGenero esté actualizado.
+table.insert(NPCTinker_UIActualizadores, function()
+    for _, datos in pairs(NPCTinkerOpcionesCara) do
+        if datos.actualizar then datos.actualizar() end
+    end
+end)
 
 FrameCara:SetScript("OnEvent", function(_, event)
     if event == "ADDON_LOADED" then
@@ -1440,6 +1439,7 @@ FrameCara:SetScript("OnEvent", function(_, event)
             if datos.actualizar then datos.actualizar() end
         end
     else
+        -- CHAT_MSG_SYSTEM: refresco por si un comando externo cambió algo
         C_Timer.After(0.05, function()
             for _, datos in pairs(NPCTinkerOpcionesCara) do
                 if datos.actualizar then datos.actualizar() end
@@ -1856,8 +1856,13 @@ NPCTinkerCrearSubVentanaOpcionCabello({
 
 local FrameCabello = CreateFrame("Frame")
 FrameCabello:RegisterEvent("ADDON_LOADED")
-FrameCabello:RegisterEvent("PLAYER_TARGET_CHANGED")
 FrameCabello:RegisterEvent("CHAT_MSG_SYSTEM")
+
+table.insert(NPCTinker_UIActualizadores, function()
+    for _, datos in pairs(NPCTinkerOpcionesCabello) do
+        if datos.actualizar then datos.actualizar() end
+    end
+end)
 
 FrameCabello:SetScript("OnEvent", function(_, event)
     if event == "ADDON_LOADED" then
@@ -2371,8 +2376,13 @@ NPCTinkerCrearSubVentanaOpcionAbalorios({
 
 local FrameAbalorios = CreateFrame("Frame")
 FrameAbalorios:RegisterEvent("ADDON_LOADED")
-FrameAbalorios:RegisterEvent("PLAYER_TARGET_CHANGED")
 FrameAbalorios:RegisterEvent("CHAT_MSG_SYSTEM")
+
+table.insert(NPCTinker_UIActualizadores, function()
+    for _, datos in pairs(NPCTinkerOpcionesAbalorios) do
+        if datos.actualizar then datos.actualizar() end
+    end
+end)
 
 FrameAbalorios:SetScript("OnEvent", function(_, event)
     if event == "ADDON_LOADED" then
@@ -3027,8 +3037,13 @@ NPCTinkerCrearSubVentanaOpcionCuerpo({
 
 local FrameCuerpo = CreateFrame("Frame")
 FrameCuerpo:RegisterEvent("ADDON_LOADED")
-FrameCuerpo:RegisterEvent("PLAYER_TARGET_CHANGED")
 FrameCuerpo:RegisterEvent("CHAT_MSG_SYSTEM")
+
+table.insert(NPCTinker_UIActualizadores, function()
+    for _, datos in pairs(NPCTinkerOpcionesCuerpo) do
+        if datos.actualizar then datos.actualizar() end
+    end
+end)
 
 FrameCuerpo:SetScript("OnEvent", function(_, event)
     if event == "ADDON_LOADED" then
@@ -3107,7 +3122,7 @@ texture:SetTexture("Interface\\COMMON\\help-i") -- Icono de info clásico de Bli
 -- Tooltip al pasar el ratón por encima
 InfoIcon:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Esta opción activada puede causar bugs en el chat en ciertas ocasiones. Cada vez que seleccionas un NPC el addon se activa, aunque esté cerrado. Desactívalo si no estás usando el addon. Sin estar activada, no funciona el addon.", nil, nil, nil, nil, true)
+    GameTooltip:SetText("Si lo desactivas no se actualizarán automáticamente las opciones de cada raza al hacer click a un NPC. Tenerlo activado no afecta al rendimiento.", nil, nil, nil, nil, true)
     GameTooltip:Show()
 end)
 
@@ -3272,14 +3287,6 @@ for i=1,3 do
     -- Acción al pulsar
     boton:SetScript("OnClick", function()
         SendChatMessage(comandos[i], "SAY")
-        -- Opcional: marcar visualmente cuál está activo
-        for j, b in ipairs(botonesAlineacion) do
-            if j==i then
-                b.textura:SetVertexColor(0.5,1,0.5) -- activo, verde pálido
-            else
-                b.textura:SetVertexColor(1,1,1) -- inactivo, normal
-            end
-        end
     end)
 
     botonesAlineacion[i] = boton
