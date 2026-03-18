@@ -66,6 +66,15 @@ local function CrearNPCVentana()
     title:SetPoint("TOP", 0, -38)
     title:SetText("NPC Tinker")
 
+    -- Área de arrastre invisible: cubre todo el frame para que sea fácil de mover
+    local dragHandle = CreateFrame("Frame", nil, NPCVentanaPrincipal)
+    dragHandle:SetAllPoints(NPCVentanaPrincipal)
+    dragHandle:SetFrameLevel(NPCVentanaPrincipal:GetFrameLevel())
+    dragHandle:EnableMouse(true)
+    dragHandle:RegisterForDrag("LeftButton")
+    dragHandle:SetScript("OnDragStart", function() NPCVentanaPrincipal:StartMoving() end)
+    dragHandle:SetScript("OnDragStop", function() NPCVentanaPrincipal:StopMovingOrSizing() end)
+
     NPCVentanaPrincipal:Hide()
     return NPCVentanaPrincipal
 end
@@ -3287,6 +3296,14 @@ for i=1,3 do
     -- Acción al pulsar
     boton:SetScript("OnClick", function()
         SendChatMessage(comandos[i], "SAY")
+        -- Opcional: marcar visualmente cuál está activo
+        for j, b in ipairs(botonesAlineacion) do
+            if j==i then
+                b.textura:SetVertexColor(0.5,1,0.5) -- activo, verde pálido
+            else
+                b.textura:SetVertexColor(1,1,1) -- inactivo, normal
+            end
+        end
     end)
 
     botonesAlineacion[i] = boton

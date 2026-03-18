@@ -2,7 +2,7 @@
 ## Title: NPCTinker
 ## Author: Norte (Discord: norte.m2) (X.com/norte_m2)
 ## Notes: ¡Editar NPCs ahora es sencillo!|n|n|cffffd200Version:|r 1.1.0
-## Version: 1.1.0
+## Version: 1.1.1
 # Files
 NPCTinker.lua
 NPCTinker-Tablas.lua
